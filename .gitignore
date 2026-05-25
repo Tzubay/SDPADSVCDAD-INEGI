@@ -1,0 +1,24 @@
+# Datos pesados
+data/raw/
+data/processed/
+results/
+
+# Archivos grandes comunes
+*.parquet
+*.csv
+*.zip
+*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Docker / entorno
+.env
+.DS_Store
+
+# Ray / logs
+/tmp/
+ray_results/
