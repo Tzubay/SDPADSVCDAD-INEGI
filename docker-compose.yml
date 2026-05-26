@@ -3,6 +3,8 @@ services:
     build: .
     container_name: ray-head
     hostname: ray-head
+    mem_limit: 6g
+    memswap_limit: 8g
     command: >
       bash -c "
       ray start --head
@@ -24,6 +26,8 @@ services:
     build: .
     container_name: ray-worker-1
     hostname: ray-worker-1
+    mem_limit: 6g
+    memswap_limit: 8g
     command: >
       bash -c "
       sleep 5 &&
@@ -39,6 +43,8 @@ services:
     build: .
     container_name: ray-worker-2
     hostname: ray-worker-2
+    mem_limit: 6g
+    memswap_limit: 8g
     command: >
       bash -c "
       sleep 5 &&
@@ -54,6 +60,8 @@ services:
     build: .
     container_name: ray-worker-3
     hostname: ray-worker-3
+    mem_limit: 6g
+    memswap_limit: 8g
     command: >
       bash -c "
       sleep 5 &&

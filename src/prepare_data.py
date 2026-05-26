@@ -44,6 +44,8 @@ TIPOS_ACCIDENTE = [
 
 def normalizar_columna(nombre: str) -> str:
     nombre = str(nombre).strip().lower()
+    # Eliminar BOM si existe
+    nombre = nombre.replace("\ufeff", "").replace("ï»¿", "")
     reemplazos = {
         "á": "a",
         "é": "e",
@@ -67,10 +69,14 @@ def normalizar_columna(nombre: str) -> str:
 
 
 def leer_csv_seguro(ruta: str) -> pd.DataFrame:
+    # Intentar primero utf-8-sig para manejar BOM correctamente
     try:
-        return pd.read_csv(ruta, encoding="utf-8", low_memory=False)
+        return pd.read_csv(ruta, encoding="utf-8-sig", low_memory=False)
     except UnicodeDecodeError:
-        return pd.read_csv(ruta, encoding="latin-1", low_memory=False)
+        try:
+            return pd.read_csv(ruta, encoding="utf-8", low_memory=False)
+        except UnicodeDecodeError:
+            return pd.read_csv(ruta, encoding="latin-1", low_memory=False)
 
 
 def cargar_catalogo(ruta: str) -> pd.DataFrame | None:
@@ -107,6 +113,10 @@ def buscar_archivos_atus() -> list[str]:
 
 
 def encontrar_base_atus() -> str | None:
+    # Primero verificar si los catalogos están directamente en raw
+    if os.path.exists(os.path.join(RAW_DIR, "catalogos")):
+        return RAW_DIR
+
     posibles = glob.glob(
         os.path.join(RAW_DIR, "**", "conjunto_de_datos_atus_anual_csv"),
         recursive=True
@@ -351,10 +361,12 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
 
     if col_entidad:
         entidad_id = pd.to_numeric(df[col_entidad], errors="coerce")
+        # Filtrar solo IDs validos de entidades mexicanas (1-32)
+        entidad_id = entidad_id.where(entidad_id.between(1, 32))
         if dic_entidades:
-            limpio["entidad"] = entidad_id.map(dic_entidades).fillna(entidad_id.astype(str))
+            limpio["entidad"] = entidad_id.map(dic_entidades)
         else:
-            limpio["entidad"] = df[col_entidad].astype(str)
+            limpio["entidad"] = entidad_id.astype(str)
     else:
         entidad_id = pd.Series(np.nan, index=df.index)
         limpio["entidad"] = "No especificado"
@@ -365,7 +377,7 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
         if dic_municipios and col_entidad:
             nombres_municipio = []
             for ent, mun in zip(entidad_id, municipio_id):
-                nombres_municipio.append(dic_municipios.get((ent, mun), str(mun)))
+                nombres_municipio.append(dic_municipios.get((ent, mun), "No especificado"))
             limpio["municipio"] = nombres_municipio
         else:
             limpio["municipio"] = df[col_municipio].astype(str)
@@ -422,6 +434,8 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
         limpio[col] = limpio[col].astype(str).str.strip()
         limpio[col] = limpio[col].replace(["nan", "None", "", "NaN"], "No especificado")
 
+    # Eliminar registros sin entidad valida
+    limpio = limpio[limpio["entidad"] != "No especificado"]
     limpio = limpio.dropna(subset=["fecha"])
 
     limpio = limpio[
@@ -480,6 +494,7 @@ def leer_dataset_real_atus() -> pd.DataFrame | None:
     print(f"Registros reales limpios unidos: {len(df_total):,}")
 
     return df_total
+
 
 def guardar_dataset(df: pd.DataFrame) -> None:
     os.makedirs(PROCESSED_DIR, exist_ok=True)
