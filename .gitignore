@@ -25,3 +25,6 @@ ray_results/
 
 # Archivos de depuración / auditoría locales
 dashboard/debug_proyecto.py
+
+# Readme
+makereadme.py
