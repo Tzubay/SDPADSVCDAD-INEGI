@@ -22,3 +22,6 @@ venv/
 # Ray / logs
 /tmp/
 ray_results/
+
+# Archivos de depuración / auditoría locales
+dashboard/debug_proyecto.py

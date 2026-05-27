@@ -214,8 +214,8 @@ def construir_diccionario_municipios(base_atus: str | None) -> dict:
     if col_entidad is None or col_municipio is None or col_nombre is None:
         return {}
 
-    catalogo[col_entidad] = pd.to_numeric(catalogo[col_entidad], errors="coerce")
-    catalogo[col_municipio] = pd.to_numeric(catalogo[col_municipio], errors="coerce")
+    catalogo[col_entidad] = pd.to_numeric(catalogo[col_entidad], errors="coerce").fillna(-1).astype(int)
+    catalogo[col_municipio] = pd.to_numeric(catalogo[col_municipio], errors="coerce").fillna(-1).astype(int)
 
     resultado = {}
 
@@ -337,8 +337,9 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
     col_anio = obtener_columna(df, ["anio", "año"])
     col_mes = obtener_columna(df, ["mes", "id_mes"])
     col_hora = obtener_columna(df, ["id_hora", "hora"])
-    col_entidad = obtener_columna(df, ["id_entidad", "entidad"])
-    col_municipio = obtener_columna(df, ["id_municipio", "municipio"])
+    
+    col_entidad = obtener_columna(df, ["id_entidad", "entidad", "edo", "cve_ent", "cve_entidad"])
+    col_municipio = obtener_columna(df, ["id_municipio", "municipio", "mun", "cve_mun", "cve_municipio"])
     col_causa = obtener_columna(df, ["causaacci", "causa", "causa_accidente"])
     col_tipo = obtener_columna(df, ["tipaccid", "tipo_accidente", "clase", "clasacc"])
 
@@ -360,8 +361,7 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
         limpio["hora"] = 0
 
     if col_entidad:
-        entidad_id = pd.to_numeric(df[col_entidad], errors="coerce")
-        # Filtrar solo IDs validos de entidades mexicanas (1-32)
+        entidad_id = pd.to_numeric(df[col_entidad], errors="coerce").fillna(-1).astype(int)
         entidad_id = entidad_id.where(entidad_id.between(1, 32))
         if dic_entidades:
             limpio["entidad"] = entidad_id.map(dic_entidades)
@@ -372,48 +372,65 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
         limpio["entidad"] = "No especificado"
 
     if col_municipio:
-        municipio_id = pd.to_numeric(df[col_municipio], errors="coerce")
+        municipio_id = pd.to_numeric(df[col_municipio], errors="coerce").fillna(-1).astype(int)
 
         if dic_municipios and col_entidad:
             nombres_municipio = []
             for ent, mun in zip(entidad_id, municipio_id):
-                nombres_municipio.append(dic_municipios.get((ent, mun), "No especificado"))
+                if pd.isna(mun) or pd.isna(ent) or mun == -1 or ent == -1:
+                    nombres_municipio.append("No especificado")
+                    continue
+                
+                ent_int = int(ent)
+                mun_int = int(mun)
+                
+                nombre = (
+                    dic_municipios.get((ent_int, mun_int)) or
+                    dic_municipios.get((str(ent_int), str(mun_int))) or
+                    dic_municipios.get((f"{ent_int:02d}", f"{mun_int:03d}")) or
+                    dic_municipios.get(mun_int) or
+                    dic_municipios.get(str(mun_int))
+                )
+                
+                nombres_municipio.append(nombre if nombre else "No especificado")
             limpio["municipio"] = nombres_municipio
         else:
             limpio["municipio"] = df[col_municipio].astype(str)
     else:
         limpio["municipio"] = "No especificado"
 
+    mapeo_causas = {
+        "1": "Conductor", "2": "Peatón o pasajero", "3": "Falla del vehículo",
+        "4": "Mala condición del camino", "5": "Otra"
+    }
+    mapeo_tipos = {
+        "1": "Colisión con vehículo automotor", "2": "Colisión con peatón", 
+        "3": "Colisión con animal", "4": "Colisión con objeto fijo", 
+        "5": "Volcadura", "6": "Caída de pasajero", "7": "Salida del camino", 
+        "8": "Incendio", "9": "Colisión con ferrocarril", "10": "Colisión con motocicleta", 
+        "11": "Colisión con ciclista", "0": "Otro"
+    }
+
     if col_causa:
-        limpio["causa"] = df[col_causa].astype(str).str.strip()
+        causa_raw = df[col_causa].astype(str).str.strip().str.replace(".0", "", regex=False)
+        limpio["causa"] = causa_raw.map(mapeo_causas).fillna(causa_raw)
     else:
         limpio["causa"] = "No especificado"
 
     if col_tipo:
-        limpio["tipo_accidente"] = df[col_tipo].astype(str).str.strip()
+        tipo_raw = df[col_tipo].astype(str).str.strip().str.replace(".0", "", regex=False)
+        limpio["tipo_accidente"] = tipo_raw.map(mapeo_tipos).fillna(tipo_raw)
     else:
         limpio["tipo_accidente"] = "No especificado"
 
     columnas_heridos = [
-        "condherido",
-        "pasaherido",
-        "peatherido",
-        "ciclherido",
-        "otroherido",
-        "neherido",
-        "heridos",
-        "lesionados"
+        "condherido", "pasaherido", "peatherido", "ciclherido",
+        "otroherido", "neherido", "heridos", "lesionados"
     ]
 
     columnas_fallecidos = [
-        "condmuerto",
-        "pasamuerto",
-        "peatmuerto",
-        "ciclmuerto",
-        "otromuerto",
-        "nemuerto",
-        "fallecidos",
-        "muertos"
+        "condmuerto", "pasamuerto", "peatmuerto", "ciclmuerto",
+        "otromuerto", "nemuerto", "fallecidos", "muertos"
     ]
 
     limpio["heridos"] = sumar_columnas_existentes(df, columnas_heridos)
@@ -434,22 +451,14 @@ def limpiar_dataset_atus_real(df: pd.DataFrame, base_atus: str | None) -> pd.Dat
         limpio[col] = limpio[col].astype(str).str.strip()
         limpio[col] = limpio[col].replace(["nan", "None", "", "NaN"], "No especificado")
 
-    # Eliminar registros sin entidad valida
     limpio = limpio[limpio["entidad"] != "No especificado"]
     limpio = limpio.dropna(subset=["fecha"])
 
     limpio = limpio[
         [
-            "fecha",
-            "anio",
-            "mes",
-            "hora",
-            "entidad",
-            "municipio",
-            "causa",
-            "tipo_accidente",
-            "heridos",
-            "fallecidos",
+            "fecha", "anio", "mes", "hora", "entidad",
+            "municipio", "causa", "tipo_accidente",
+            "heridos", "fallecidos"
         ]
     ]
 
@@ -475,6 +484,30 @@ def leer_dataset_real_atus() -> pd.DataFrame | None:
         print(f"\n[{i}/{len(archivos)}] Leyendo: {archivo}")
 
         df_raw = leer_csv_seguro(archivo)
+        
+        # --- PARCHE DETECTOR DINÁMICO DE DESFASES DE COLUMNAS ---
+        df_raw.columns = [normalizar_columna(c) for c in df_raw.columns]
+        col_anio_header = obtener_columna(df_raw, ["anio", "año"])
+        
+        if col_anio_header and col_anio_header in df_raw.columns:
+            idx_anio_header = df_raw.columns.get_loc(col_anio_header)
+            idx_anio_real = -1
+            
+            # Analizamos las primeras 10 columnas buscando dónde están realmente los años (valores > 1990)
+            for j, col in enumerate(df_raw.columns[:10]):
+                valores = pd.to_numeric(df_raw[col], errors='coerce')
+                if valores.notna().sum() > 0 and 1990 <= valores.mean() <= 2030:
+                    idx_anio_real = j
+                    break
+            
+            # Si encontramos el año real a la izquierda de la columna del header del año, hay desfase
+            if idx_anio_real != -1 and idx_anio_real < idx_anio_header:
+                desfase = idx_anio_header - idx_anio_real
+                print(f"  [!] Desfase de {desfase} columna(s) detectado en archivo crudo. Corrigiendo headers...")
+                # Desplazamos las etiquetas del header hacia la derecha agregando nombres fantasma al inicio
+                nuevas_cols = df_raw.columns[desfase:].tolist() + [f"fantasma_{x}" for x in range(desfase)]
+                df_raw.columns = nuevas_cols
+        # --------------------------------------------------------
 
         print(f"Registros crudos del archivo: {len(df_raw):,}")
 
